@@ -1,9 +1,8 @@
-export const dynamic = "force-dynamic";
-
 import { google } from "googleapis";
 import { NextResponse } from "next/server";
 import { v2 as cloudinary } from 'cloudinary';
 
+// Configure Cloudinary
 cloudinary.config({
   cloud_name: process.env.CLOUDINARY_CLOUD_NAME,
   api_key: process.env.CLOUDINARY_API_KEY,
@@ -11,11 +10,13 @@ cloudinary.config({
 });
 
 async function uploadToCloudinary(file: File) {
+  // Convert File to base64
   const arrayBuffer = await file.arrayBuffer();
   const buffer = Buffer.from(arrayBuffer);
   const base64Data = buffer.toString('base64');
   const dataURI = `data:${file.type};base64,${base64Data}`;
 
+  // Upload to Cloudinary
   const result = await new Promise((resolve, reject) => {
     cloudinary.uploader.upload(dataURI, {
       folder: 'course-registrations',
@@ -36,9 +37,18 @@ export async function POST(req: Request) {
     const course = formData.get("course") as string;
     const photo = formData.get("photo") as File;
 
+    if (!name || !email || !course || !photo) {
+      return NextResponse.json(
+        { error: "Missing required fields" },
+        { status: 400 }
+      );
+    }
+
+    // Upload photo to Cloudinary and get the URL
     const photoUrl = await uploadToCloudinary(photo);
     console.log("Form submission:", { name, email, course, photoUrl });
 
+    // Google Sheets Authentication
     const auth = new google.auth.GoogleAuth({
       credentials: {
         client_email: process.env.GOOGLE_SHEETS_CLIENT_EMAIL,
@@ -49,16 +59,28 @@ export async function POST(req: Request) {
 
     const sheets = google.sheets({ version: "v4", auth });
 
-    await sheets.spreadsheets.values.append({
-      spreadsheetId: process.env.GOOGLE_SHEETS_SPREADSHEET_ID,
-      range: "Sheet1!A:D",
-      valueInputOption: "USER_ENTERED",
-      requestBody: {
-        values: [[name, email, course, photoUrl]],
-      },
-    });
+    try {
+      // Append data to Google Sheet
+      await sheets.spreadsheets.values.append({
+        spreadsheetId: process.env.GOOGLE_SHEETS_SPREADSHEET_ID,
+        range: "Sheet1!A:D", // Adjust range according to your sheet
+        valueInputOption: "USER_ENTERED",
+        requestBody: {
+          values: [[name, email, course, photoUrl]],
+        },
+      });
+    } catch (sheetsError) {
+      console.error("Google Sheets Error:", sheetsError);
+      return NextResponse.json(
+        { error: "Failed to save to Google Sheets" },
+        { status: 500 }
+      );
+    }
 
-    return NextResponse.json({ message: "Data submitted successfully" });
+    return NextResponse.json({ 
+      message: "Data submitted successfully",
+      data: { name, email, course, photoUrl }
+    });
   } catch (error) {
     console.error("Error submitting form:", error);
     return NextResponse.json(

@@ -20,8 +20,8 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { useState } from "react";
-import { Upload } from "lucide-react";
+import { useState, useEffect } from "react";
+import { Upload, CheckCircle2 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 
 const MAX_FILE_SIZE = 5000000; // 5MB
@@ -55,7 +55,23 @@ const formSchema = z.object({
 
 export default function Home() {
   const [isLoading, setIsLoading] = useState(false);
+  const [isSuccess, setIsSuccess] = useState(false);
   const { toast } = useToast();
+
+  // Auto-dismiss success message after 5 seconds
+  useEffect(() => {
+    let timeoutId: NodeJS.Timeout;
+    if (isSuccess) {
+      timeoutId = setTimeout(() => {
+        setIsSuccess(false);
+      }, 5000);
+    }
+    return () => {
+      if (timeoutId) {
+        clearTimeout(timeoutId);
+      }
+    };
+  }, [isSuccess]);
 
   const form = useForm<z.infer<typeof formSchema>>({
     resolver: zodResolver(formSchema),
@@ -69,8 +85,8 @@ export default function Home() {
   async function onSubmit(values: z.infer<typeof formSchema>) {
     try {
       setIsLoading(true);
-      console.log("Form values:", values);
-
+      setIsSuccess(false);
+      
       const formData = new FormData();
       formData.append("name", values.name);
       formData.append("email", values.email);
@@ -82,22 +98,38 @@ export default function Home() {
         body: formData,
       });
 
+      const data = await response.json();
+
       if (!response.ok) {
-        throw new Error("Failed to submit form");
+        throw new Error(data.error || "Failed to submit form");
       }
 
+      console.log("Form submitted successfully:", data);
+      setIsSuccess(true);
       toast({
         title: "Success!",
-        description: "Your form has been submitted successfully.",
+        description: "Your registration has been submitted successfully.",
       });
 
-      form.reset();
+      // Reset form
+      form.reset({
+        name: "",
+        email: "",
+        course: "",
+      });
+      
+      // Clear file input
+      const fileInput = document.querySelector('input[type="file"]') as HTMLInputElement;
+      if (fileInput) {
+        fileInput.value = "";
+      }
+
     } catch (error) {
       console.error("Error submitting form:", error);
       toast({
         variant: "destructive",
         title: "Error",
-        description: "Something went wrong. Please try again.",
+        description: error instanceof Error ? error.message : "Something went wrong. Please try again.",
       });
     } finally {
       setIsLoading(false);
@@ -111,6 +143,13 @@ export default function Home() {
           <h1 className="text-3xl font-bold text-gray-900">Course Registration</h1>
           <p className="mt-2 text-gray-600">Fill out the form below to register for a course</p>
         </div>
+
+        {isSuccess && (
+          <div className="mb-6 p-4 bg-green-50 border border-green-200 rounded-lg flex items-center gap-2 text-green-700">
+            <CheckCircle2 className="h-5 w-5" />
+            <span>Registration submitted successfully!</span>
+          </div>
+        )}
 
         <Form {...form}>
           <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-6">
